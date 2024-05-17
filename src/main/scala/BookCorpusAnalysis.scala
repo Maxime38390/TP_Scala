@@ -1,30 +1,43 @@
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{SparkSession, DataFrame}
+import org.apache.spark.sql.functions._
+import org.apache.spark.rdd.RDD
 import java.nio.file.{Files, Paths}
+import breeze.plot._
 
 object BookCorpusAnalysis {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder
       .appName("BookCorpus Analysis")
+      .config("spark.executor.memory", "4g")
+      .config("spark.driver.memory", "4g")
+      .config("spark.sql.shuffle.partitions", "200")
       .master("local[*]")
       .getOrCreate()
 
     val dataDir = "/mnt/d/Documents/EPSI/TP_Scala/data"
     val part1Path = s"$dataDir/books_large_p1.txt"
+    val part2Path = s"$dataDir/books_large_p2.txt"
 
-    if (!Files.exists(Paths.get(part1Path))) {
+    if (!Files.exists(Paths.get(part1Path)) || !Files.exists(Paths.get(part2Path))) {
       println("========================================")
-      println(s"Le fichier suivant est manquant : $part1Path")
+      println(s"Les fichiers suivants sont manquants :")
+      if (!Files.exists(Paths.get(part1Path))) println(s"$part1Path")
+      if (!Files.exists(Paths.get(part2Path))) println(s"$part2Path")
       println("========================================")
       sys.exit(1)
     }
 
-    // Limite pour le nombre de lignes à charger
-    val lineLimit = 10000000
+    // Load only the first 3 million lines from each file
+    val lineLimit = 3000000
+    val rawData1 = Preprocessing.loadData(spark, part1Path, lineLimit)
+    val rawData2 = Preprocessing.loadData(spark, part2Path, lineLimit)
+    
+    // Combine the datasets
+    val rawData = rawData1.union(rawData2)
 
     // Prétraitement
-    val rawData = Preprocessing.loadData(spark, part1Path, lineLimit)
     val cleanedData = Preprocessing.cleanData(rawData)
-    val booksData = Preprocessing.splitIntoBooks(cleanedData)
+    val booksData = Preprocessing.splitIntoBooks(cleanedData).cache()
 
     // Compter et afficher le nombre de livres
     val bookCount = Analysis.countBooks(booksData)
@@ -37,11 +50,11 @@ object BookCorpusAnalysis {
 
     // Analyse
     Analysis.verifyDataset(booksData)
-    val analyzedData = Analysis.descriptiveStatistics(booksData)
-    val advancedAnalysisData = Analysis.analyzeText(analyzedData)
+    val descriptiveStats = Analysis.descriptiveStatistics(booksData).cache()
+    val advancedAnalysisData = Analysis.analyzeText(booksData)
 
     // Visualisation
-    Visualization.visualizeData(analyzedData)
+    Visualization.visualizeData(advancedAnalysisData)
 
     spark.stop()
   }

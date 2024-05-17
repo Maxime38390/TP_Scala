@@ -1,6 +1,8 @@
-import org.apache.spark.sql.{SparkSession, DataFrame, Row}
+import org.apache.spark.sql.{SparkSession, DataFrame}
 import org.apache.spark.sql.functions._
 import org.apache.spark.rdd.RDD
+import java.nio.file.{Files, Paths}
+import breeze.plot._
 
 object Preprocessing {
   val isbnPattern = "(97(8|9))?\\d{9}(\\d|X)".r
@@ -14,15 +16,12 @@ object Preprocessing {
     rdd.map(line => line.replaceAll("[^a-zA-Z0-9\\s]", "").trim).filter(_.nonEmpty)
   }
 
-  def splitIntoBooks(rdd: RDD[String]): DataFrame = {
-    val spark = SparkSession.builder.getOrCreate()
-    import spark.implicits._
-
-    val bookIdRdd = rdd.zipWithIndex().mapPartitions { iter =>
+  def splitIntoBooks(rdd: RDD[String]): RDD[(String, Long)] = {
+    rdd.zipWithIndex().mapPartitions { iter =>
       var bookId = 0L
       var linesSinceLastBook = 0L
       iter.map { case (line, index) =>
-        if (linesSinceLastBook >= 1000 && (isbnPattern.findFirstIn(line).isDefined || chapterPattern.r.findFirstIn(line).isDefined)) {
+        if (linesSinceLastBook >= 500 && (isbnPattern.findFirstIn(line).isDefined || chapterPattern.r.findFirstIn(line).isDefined)) {
           bookId += 1
           linesSinceLastBook = 0
         }
@@ -30,7 +29,5 @@ object Preprocessing {
         (line, bookId)
       }
     }
-
-    bookIdRdd.toDF("text", "book_id")
   }
 }
